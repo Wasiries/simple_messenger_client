@@ -1,8 +1,9 @@
-use std::net::TcpStream;
-use std::thread;
-use std::io::{self, Read, Write};
-use std::sync::mpsc;
-
+use std::{
+    net::TcpStream,
+    thread,
+    io::{self, Read, Write},
+    sync::mpsc,
+};
 
 #[allow(dead_code)]
 fn encryption(value: &[u8]) -> Vec<u8> {
@@ -16,58 +17,109 @@ fn decryption(value: &[u8]) -> Vec<u8> {
     return ans;
 }
 
+
 fn main() {
     let mut ip = String::new();
     io::stdin().read_line(&mut ip).unwrap();
     ip = ip.trim().parse().unwrap();
 
-    let (sender, receiver) = mpsc::channel();
-    let (interruption_s, interruption_r) = mpsc::channel();
-    let stream = TcpStream::connect(&ip[..]).unwrap();
-    let closure = move || {
-        chating(sender, interruption_r);
+    let stream = match TcpStream::connect(&ip[..]) {
+        Ok(stream) => {
+            stream
+        },
+        Err(error) => {
+            println!("Failed to connect: {}", error.kind());
+            return;
+        }
     };
-    let handle = thread::spawn(closure);
-    handle_server(stream, receiver);
-    let _ = interruption_s.send(true);
-    let _ = handle.join();
+    let stream_clone = match stream.try_clone() {
+        Ok(stream) => {
+            stream
+        },
+        Err(error) => {
+            println!("Failed to clone stream: {}", error.kind());
+            return;
+        }
+    };
 
+    let (sender, receiver) = mpsc::channel();
+    let (sinterw, rinterw) = mpsc::channel();
+    let (sinterr, rinterr) = mpsc::channel();
+    let read = move || {
+        reading(stream_clone, rinterr);
+    };
+    let write = move || {
+        writing(stream, receiver, rinterw);
+    };
+    let read_handle = thread::spawn(read);
+    let write_handle = thread::spawn(write);
+    
+    let mut input = String::new();
+
+    loop {
+        input.clear();
+        match io::stdin().read_line(&mut input) {
+            Ok(0) => {
+                break;
+            },
+            Ok(_) => {
+                let message = input.trim().to_string();
+                if message.is_empty() {
+                    continue;
+                }
+                if sender.send(message + "\n").is_err() {
+                    break;
+                }
+            },
+            Err(error) => {
+                println!("Input error: {}", error.kind());
+                break;
+            }
+        }
+    }
+    sinterr.send(true).unwrap();
+    sinterw.send(true).unwrap();
+    let _ = read_handle.join();
+    let _ = write_handle.join();
+
+    println!("Client work finished");
 }
 
-fn chating(sender: mpsc::Sender<String>, interruption: mpsc::Receiver<bool>) {
-    let mut value = String::new();
+fn reading(mut stream: TcpStream, interruption: mpsc::Receiver<bool>) {
+    let mut buffer = [0; 2048];
     loop {
-        if let Ok(_) = interruption.try_recv() {
-            break;
+        if let Ok(value) = interruption.try_recv() {
+            if value == true {
+                break;
+            }
         }
-        io::stdin().read_line(&mut value).unwrap();
-        value = value.trim().parse().unwrap();
-        let _ = sender.send(value.clone());
-        value = String::new();
+        match stream.read(&mut buffer) {
+            Ok(0) => {
+                println!("Connection lost");
+                break;
+            },
+            Ok(buffer_size) => {
+                let message = String::from_utf8(decryption(&buffer[..buffer_size])).unwrap();
+                println!("{}", message);
+            },
+            Err(error) => {
+                println!("Connection error: {}", error.kind());
+                break;
+            }
+        }
     }
 }
 
-fn handle_server(mut stream: TcpStream, receiver: mpsc::Receiver<String>) {
-    let mut buffer: [u8; 2048] = [0; 2048];
-    loop {
-        if let Ok(value) = receiver.try_recv() {
-            let _ = stream.write(value.as_bytes());
-        }
-        match stream.read(&mut buffer) {
-            Ok(buffer_size) => {
-                if buffer_size == 0 {
-                    println!("Server has disconnected");
-                    break;
-                } else {
-                    let value = &buffer[..buffer_size];
-                    let message = String::from_utf8(decryption(value)).unwrap();
-                    println!("{}", message);
-                }
-            },
-            Err(e) => {
-                println!("Server processing error: {}", e.kind());
+fn writing(mut stream: TcpStream, receiver: mpsc::Receiver<String>, interruption: mpsc::Receiver<bool>) {
+    for message in receiver {
+        if let Ok(value) = interruption.try_recv() {
+            if value == true {
                 break;
             }
+        }
+        if let Err(error) = stream.write(message.as_bytes()) {
+            println!("Failed to send message due to: {}", error.kind());
+            break;
         }
     }
 }
