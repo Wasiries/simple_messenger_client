@@ -1,8 +1,15 @@
+static mut IP: String = String::new();
+
 use std::net::TcpStream;
 use std::str;
 use std::io::{self, BufRead, BufReader, Write};
 
-static mut IP: String = String::new();
+pub fn enter() -> String {
+    let mut value = String::new();
+    std::io::stdin().read_line(&mut value).unwrap();
+    let value: String = value.trim().parse().unwrap();
+    return value;
+}
 
 pub fn initialize(ip_: String) {
     unsafe {

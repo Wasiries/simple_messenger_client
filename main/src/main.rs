@@ -1,3 +1,7 @@
+use lib;
+
 fn main() {
-    println!("Hello, world!");
+    let ip = lib::enter();
+    lib::initialize(ip);
+    lib::begining();
 }
