@@ -98,6 +98,25 @@ fn main() {
     io::stdin().read_line(&mut ip).unwrap();
     ip = ip.trim().parse().unwrap();
 
+    let stream = match TcpStream::connect(&ip[..]) {
+        Ok(stream) => {
+            stream
+        },
+        Err(error) => {
+            println!("Failed to connect: {}", error.kind());
+            return;
+        }
+    };
+    let stream_clone = match stream.try_clone() {
+        Ok(stream) => {
+            stream
+        },
+        Err(error) => {
+            println!("Failed to clone stream: {}", error.kind());
+            return;
+        }
+    };
+    println!("Connection was set");
     let mut p1 = String::new();
     io::stdin().read_line(&mut p1).unwrap();
     let p1: u64 = p1.trim().parse().unwrap();
@@ -119,26 +138,6 @@ fn main() {
     io::stdin().read_line(&mut rb).unwrap();
     let rb: u64 = rb.trim().parse().unwrap();
     println!("rb = {}", rb);
-
-    let stream = match TcpStream::connect(&ip[..]) {
-        Ok(stream) => {
-            stream
-        },
-        Err(error) => {
-            println!("Failed to connect: {}", error.kind());
-            return;
-        }
-    };
-    let stream_clone = match stream.try_clone() {
-        Ok(stream) => {
-            stream
-        },
-        Err(error) => {
-            println!("Failed to clone stream: {}", error.kind());
-            return;
-        }
-    };
-
     let (sender, receiver) = mpsc::channel();
     let (sinterw, rinterw) = mpsc::channel();
     let (sinterr, rinterr) = mpsc::channel();
