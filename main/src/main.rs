@@ -58,29 +58,26 @@ fn downsize(vector: &[u8]) -> Vec<u64> {
     result
 }
 
+#[allow(dead_code)]
 fn encryption(value: &[u8], b: u64, rb: u64) -> Vec<u8> {
-    let blocks = downsize(value);
-    let mut encrypted_blocks = Vec::new();
-    
-    for block in blocks {
-        let encrypted = powmod(block, b, rb);
-        encrypted_blocks.push(encrypted);
+    let mut temp = vec![0u64; value.len()];
+    for i in 0..value.len() {
+        temp[i] = value[i] as u64;
+        temp[i] = powmod(temp[i], b, rb);
     }
-    
-    extend(&encrypted_blocks)
+    let ans = extend(&temp[..]);
+    return ans;
+}
+#[allow(dead_code)]
+fn decryption(value: &[u8], alpha: u64, ra: u64) -> Vec<u8> {
+    let temp = downsize(&Vec::from(value)[..]);
+    let mut ans = vec![0u8; temp.len()];
+    for i in 0..temp.len() {
+        ans[i] = powmod(temp[i], alpha, ra) as u8;
+    }
+    return ans;
 }
 
-fn decryption(value: &[u8], alpha: u64, ra: u64) -> Vec<u8> {
-    let blocks = downsize(value);
-    let mut decrypted_blocks = Vec::new();
-    
-    for block in blocks {
-        let decrypted = powmod(block, alpha, ra);
-        decrypted_blocks.push(decrypted);
-    }
-    
-    extend(&decrypted_blocks)
-}
 
 fn without_decryption(value: &[u8]) -> Vec<u8> {
     let temp = downsize(&Vec::from(value)[..]);
@@ -119,11 +116,12 @@ fn euler(first: u64, second: u64) -> u64 {
 
 
 fn main() {
+    println!("Enter server ip:");
     let mut ip = String::new();
     io::stdin().read_line(&mut ip).unwrap();
     ip = ip.trim().parse().unwrap();
 
-    let stream = match TcpStream::connect(&ip[..]) {
+    let mut stream = match TcpStream::connect(&ip[..]) {
         Ok(stream) => {
             stream
         },
@@ -142,27 +140,42 @@ fn main() {
         }
     };
     println!("Connection was set");
+    println!("Enter p1:");
     let mut p1 = String::new();
     io::stdin().read_line(&mut p1).unwrap();
     let p1: u64 = p1.trim().parse().unwrap();
+    println!("Enter p2:");
     let mut p2 = String::new();
     io::stdin().read_line(&mut p2).unwrap();
     let p2: u64 = p2.trim().parse().unwrap();
     println!("ra = {}", p1 * p2);
+    println!("Enter a:");
     let mut a = String::new();
     io::stdin().read_line(&mut a).unwrap();
     let a: u64 = a.trim().parse().unwrap();
     println!("a = {}", a);
     let alpha = alpha_finder(a, euler(p1, p2));
     println!("alpha = {}", alpha);
+    println!("Enter b:");
     let mut b = String::new();
     io::stdin().read_line(&mut b).unwrap();
     let b: u64 = b.trim().parse().unwrap();
     println!("b = {}", b);
+    println!("Enter rb");
     let mut rb = String::new();
     io::stdin().read_line(&mut rb).unwrap();
     let rb: u64 = rb.trim().parse().unwrap();
     println!("rb = {}", rb);
+    let mut buf = [0u8; 4096];
+    let z = stream.read(&mut buf).unwrap();
+    stream.write(&buf[..z]).unwrap();
+    let v = stream.read(&mut buf).unwrap();
+    if v == 16 {
+        println!("You can start chating");
+    } else {
+        println!("Internal Error");
+        return;
+    }
     let (sender, receiver) = mpsc::channel();
     let (sinterw, rinterw) = mpsc::channel();
     let (sinterr, rinterr) = mpsc::channel();
@@ -217,12 +230,14 @@ fn reading(mut stream: TcpStream, interruption: mpsc::Receiver<bool>, alpha: u64
         match stream.read(&mut buffer) {
             Ok(0) => {
                 println!("Connection lost");
-                break;
+                return;
             },
             Ok(buffer_size) => {
-                let encrypted = String::from_utf8(without_decryption(&buffer[..buffer_size])).unwrap();
-                let message = String::from_utf8(decryption(&buffer[..buffer_size], alpha, ra)).unwrap();
-                println!("{}\n{}", encrypted, message);
+                let t1 = &without_decryption(&buffer[..buffer_size])[..];
+                let encrypted = String::from_utf8_lossy(t1);
+                let t2 = &decryption(&buffer[..buffer_size], alpha, ra)[..];
+                let message = String::from_utf8_lossy(t2);
+                println!("\n{}\n{}", encrypted, message);
             },
             Err(error) => {
                 println!("Connection error: {}", error.kind());
@@ -239,9 +254,12 @@ fn writing(mut stream: TcpStream, receiver: mpsc::Receiver<String>, interruption
                 break;
             }
         }
-        if let Err(error) = stream.write(&encryption(message.as_bytes(), b, rb)[..]) {
+        let sent = encryption(message.as_bytes(), b, rb);
+        if let Err(error) = stream.write(&sent[..]) {
             println!("Failed to send message due to: {}", error.kind());
             break;
         }
+        let temp = without_decryption(&sent[..]);
+        println!("{}", String::from_utf8_lossy(&temp[..]));
     }
 }
